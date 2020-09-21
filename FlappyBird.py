@@ -1,233 +1,382 @@
-import pygame as pg
-import os 
-import time 
+import pygame
 import random
+import os
+import time
+pygame.font.init()  # init font
 
-#initialize the game 
-pg.init()
-pg.font.init()
+WIN_WIDTH = 600
+WIN_HEIGHT = 800
+PIPE_VEL = 3
+FLOOR = 730
+STAT_FONT = pygame.font.SysFont("comicsans", 50)
+END_FONT = pygame.font.SysFont("comicsans", 70)
 
-#Window in tuple
-WIDTH, HEIGHT = 750, 750
-WIN = pg.display.set_mode((WIDTH, HEIGHT))
-pg.display.set_caption('SPACE INVADERS')
+WIN = pygame.display.set_mode((WIN_WIDTH, WIN_HEIGHT))
+pygame.display.set_caption("Flappy Bird")
+
+pipe_img = pygame.transform.scale2x(pygame.image.load(os.path.join("imgs","pipe.png")).convert_alpha())
+bg_img = pygame.transform.scale(pygame.image.load(os.path.join("imgs","bg.png")).convert_alpha(), (600, 900))
+bird_images = [pygame.transform.scale2x(pygame.image.load(os.path.join("imgs","bird" + str(x) + ".png"))) for x in range(1,4)]
+base_img = pygame.transform.scale2x(pygame.image.load(os.path.join("imgs","base.png")).convert_alpha())
+
+class Bird:
+    """
+    Bird class representing the flappy bird
+    """
+    WIN_HEIGHT = 0
+    WIN_WIDTH = 0
+    MAX_ROTATION = 25
+    IMGS = bird_images
+    ROT_VEL = 20
+    ANIMATION_TIME = 5
+
+    def __init__(self, x, y):
+        """
+        Initialize the object
+        :param x: starting x pos (int)
+        :param y: starting y pos (int)
+        :return: None
+        """
+        self.x = x
+        self.y = y
+        self.gravity = 9.8
+        self.tilt = 0  # degrees to tilt
+        self.tick_count = 0
+        self.vel = 0
+        self.height = self.y
+        self.img_count = 0
+        self.img = self.IMGS[0]
+
+    def jump(self):
+        """
+        make the bird jump
+        :return: None
+        """
+        self.vel = -10.5
+        self.tick_count = 0
+        self.height = self.y
+
+    def move(self):
+        """
+        make the bird move
+        :return: None
+        """
+        self.tick_count += 1
+
+        # for downward acceleration
+        displacement = self.vel*(self.tick_count) + 0.5*(3)*(self.tick_count)**2  # calculate displacement
+
+        # terminal velocity
+        if displacement >= 16:
+            displacement = (displacement/abs(displacement)) * 16
+
+        if displacement < 0:
+            displacement -= 2
+
+        self.y = self.y + displacement
+
+        if displacement < 0 or self.y < self.height + 50:  # tilt up
+            if self.tilt < self.MAX_ROTATION:
+                self.tilt = self.MAX_ROTATION
+        else:  # tilt down
+            if self.tilt > -90:
+                self.tilt -= self.ROT_VEL
+
+    def draw(self, win):
+        """
+        draw the bird
+        :param win: pygame window or surface
+        :return: None
+        """
+        self.img_count += 1
+
+        # For animation of bird, loop through three images
+        if self.img_count <= self.ANIMATION_TIME:
+            self.img = self.IMGS[0]
+        elif self.img_count <= self.ANIMATION_TIME*2:
+            self.img = self.IMGS[1]
+        elif self.img_count <= self.ANIMATION_TIME*3:
+            self.img = self.IMGS[2]
+        elif self.img_count <= self.ANIMATION_TIME*4:
+            self.img = self.IMGS[1]
+        elif self.img_count == self.ANIMATION_TIME*4 + 1:
+            self.img = self.IMGS[0]
+            self.img_count = 0
+
+        # so when bird is nose diving it isn't flapping
+        if self.tilt <= -80:
+            self.img = self.IMGS[1]
+            self.img_count = self.ANIMATION_TIME*2
 
 
-#load all the images 
-BACK_BLACK = pg.transform.scale(pg.image.load(os.path.join('assets', 'background-black.png')), (WIDTH,HEIGHT))
-#lasers
-LASER_BLUE = pg.image.load(os.path.join('assets', 'pixel_laser_blue.png'))
-LASER_GREEN = pg.image.load(os.path.join('assets', 'pixel_laser_green.png'))
-LASER_YELLOW = pg.image.load(os.path.join('assets', 'pixel_laser_yellow.png'))
-LASER_RED = pg.image.load(os.path.join('assets', 'pixel_laser_red.png'))
-#blit's in our game
-SHIP_BLUE_SMALL = pg.image.load(os.path.join('assets', 'pixel_ship_blue_small.png'))
-SHIP_GREEN_SMALL = pg.image.load(os.path.join('assets', 'pixel_ship_green_small.png'))
-SHIP_RED_SMALL = pg.image.load(os.path.join('assets', 'pixel_ship_red_small.png'))
-SHIP_YELLOW = pg.image.load(os.path.join('assets', 'pixel_ship_yellow.png'))
-pg.display.set_icon(SHIP_YELLOW)
+        # tilt the bird
+        blitRotateCenter(win, self.img, (self.x, self.y), self.tilt)
 
-class Laser:
-	def __init__(self, x, y, img):
-		self.x = x
-		self.y = y
-		self.img = img
-		self.mask = pg.mask.from_surface(self.img)
+    def get_mask(self):
+        """
+        gets the mask for the current image of the bird
+        :return: None
+        """
+        return pygame.mask.from_surface(self.img)
 
-	def draw(self, window):
-		window.blit(self.img, (self.x, self.y))
 
-	def move(self, vel):
-		self.y += vel
+class Pipe():
+    """
+    represents a pipe object
+    """
+    WIN_HEIGHT = WIN_HEIGHT
+    WIN_WIDTH = WIN_WIDTH
+    GAP = 200
+    VEL = 5
 
-	#if the laser is off screen
-	def off_screen(self, height):
-		return not (self.y <= height and self.y >= 0)
-	
-	def collision(self, obj):
-		return collide(self, obj)
+    def __init__(self, x):
+        """
+        initialize pipe object
+        :param x: int
+        :param y: int
+        :return" None
+        """
+        self.x = x
+        self.height = 0
+        self.gap = 100  # gap between top and bottom pipe
 
-class Ship:
+        # where the top and bottom of the pipe is
+        self.top = 0
+        self.bottom = 0
 
-	COOLDOWN = 30
+        self.PIPE_TOP = pygame.transform.flip(pipe_img, False, True)
+        self.PIPE_BOTTOM = pipe_img
 
-	def __init__(self, x, y, health = 100):
-		self.x = x
-		self.y = y
-		self.health = health
-		self.ship_png = None 
-		self.laser_png = None
-		self.lasers = []
-		self.cool_down_counter = 0
-        
-	def draw(self, window):
-	    window.blit(self.ship_png, (self.x, self.y))
-	    for laser in self.lasers:
-	    	laser.draw(window)
+        self.passed = False
 
-	def move_lasers(self, vel, obj):
-		self.cooldown
-		for laser in self.lasers:
-			laser.move(vel)
-			if laser.off_screen(HEIGHT):
-				self.lasers.remove(laser)
-			elif laser.collision(obj):
-				obj.health -= 10
-				self.lasers.remove(laser)
+        self.set_height()
 
-	def cooldown(self):
-		if self.cool_down_counter >= self.COOLDOWN:
-			self.cool_down_counter = 0
+    def set_height(self):
+        """
+        set the height of the pipe, from the top of the screen
+        :return: None
+        """
+        self.height = random.randrange(50, 450)
+        self.top = self.height - self.PIPE_TOP.get_height()
+        self.bottom = self.height + self.GAP
 
-		elif self.cool_down_counter > 0:
-			self.cool_down_counter += 1
+    def move(self):
+        """
+        move pipe based on vel
+        :return: None
+        """
+        self.x -= self.VEL
 
-	def shoot(self):
-		if self.cool_down_counter == 0:
-			laser = Laser(self.x, self.y, self.laser_png)
-			self.lasers.append(laser)
-			self.cool_down_counter = 1
-        
-class Player(Ship):
-    def __init__(self, x, y, health=100):
-        #to use the player initialization on this
-        super().__init__(x, y, health)
-        self.ship_png = SHIP_YELLOW
-        self.laser_png = LASER_YELLOW
-        self.max_health = health
-        #for pixel and collision mechanics 
-        self.mask = pg.mask.from_surface(self.ship_png)
+    def draw(self, win):
+        """
+        draw both the top and bottom of the pipe
+        :param win: pygame window/surface
+        :return: None
+        """
+        # draw top
+        win.blit(self.PIPE_TOP, (self.x, self.top))
+        # draw bottom
+        win.blit(self.PIPE_BOTTOM, (self.x, self.bottom))
 
-    def move_lasers(self, vel, objs):
-    	self.cooldown()
-    	for laser in self.lasers:
-    		laser.move(vel)
-    		if laser.off_screen(HEIGHT):
-    			self.lasers.remove(laser)
-    		else:
-    			for obj in objs:
-    				if laser.collision(obj):
-    					objs.remove(obj)
-    					self.lasers.remove(laser)
 
-class Enemy(Ship):
-    #Create a dictionary full for laser_ship and their colours
-    LASER_MAP = {
-                    "green" : (SHIP_GREEN_SMALL, LASER_GREEN),
-                    "red" : (SHIP_RED_SMALL, LASER_RED),
-                    "blue" : (SHIP_BLUE_SMALL, LASER_BLUE) 
-                }
-                    
-    def __init__(self, x, y, color, health = 100):
-        super().__init__(x, y, health)
-        self.ship_png, self.laser_png = self.LASER_MAP[color]
-        self.mask = pg.mask.from_surface(self.ship_png)
-        
-    def move(self, velocity):
-        self.y += velocity
+    def collide(self, bird, win):
+        """
+        returns if a point is colliding with the pipe
+        :param bird: Bird object
+        :return: Bool
+        """
+        bird_mask = bird.get_mask()
+        top_mask = pygame.mask.from_surface(self.PIPE_TOP)
+        bottom_mask = pygame.mask.from_surface(self.PIPE_BOTTOM)
+        top_offset = (self.x - bird.x, self.top - round(bird.y))
+        bottom_offset = (self.x - bird.x, self.bottom - round(bird.y))
 
-def collide(obj1, obj2):
-	offset_x = obj2.x - obj1.x
-	offset_y = obj2.y - obj1.y
-	return obj1.mask.overlap(obj2.mask, (offset_x, offset_y))
+        b_point = bird_mask.overlap(bottom_mask, bottom_offset)
+        t_point = bird_mask.overlap(top_mask,top_offset)
 
-def main():
-    #setting FPS = 60, to run game at the same speed regardless of computer speed
+        if b_point or t_point:
+            return True
+
+        return False
+
+class Base:
+    """
+    Represnts the moving floor of the game
+    """
+    VEL = 5
+    WIN_WIDTH = WIN_WIDTH
+    WIDTH = base_img.get_width()
+    IMG = base_img
+
+    def __init__(self, y):
+        """
+        Initialize the object
+        :param y: int
+        :return: None
+        """
+        self.y = y
+        self.x1 = 0
+        self.x2 = self.WIDTH
+
+    def move(self):
+        """
+        move floor so it looks like its scrolling
+        :return: None
+        """
+        self.x1 -= self.VEL
+        self.x2 -= self.VEL
+        if self.x1 + self.WIDTH < 0:
+            self.x1 = self.x2 + self.WIDTH
+
+        if self.x2 + self.WIDTH < 0:
+            self.x2 = self.x1 + self.WIDTH
+
+    def draw(self, win):
+        """
+        Draw the floor. This is two images that move together.
+        :param win: the pygame surface/window
+        :return: None
+        """
+        win.blit(self.IMG, (self.x1, self.y))
+        win.blit(self.IMG, (self.x2, self.y))
+
+
+def blitRotateCenter(surf, image, topleft, angle):
+    """
+    Rotate a surface and blit it to the window
+    :param surf: the surface to blit to
+    :param image: the image surface to rotate
+    :param topLeft: the top left position of the image
+    :param angle: a float value for angle
+    :return: None
+    """
+    rotated_image = pygame.transform.rotate(image, angle)
+    new_rect = rotated_image.get_rect(center = image.get_rect(topleft = topleft).center)
+
+    surf.blit(rotated_image, new_rect.topleft)
+
+def menu_screen(win):
+    """
+    the menu screen that will start the game
+    :param win: the pygame window surface
+    :return: None
+    """
+    pass
+
+def end_screen(win):
+    """
+    display an end screen when the player loses
+    :param win: the pygame window surface
+    :return: None
+    """
     run = True
-    FPS = 60
-    level = 0
-    lives = 5
-    player_speed = 5
-    laser_speed = 4
-    clock = pg.time.Clock()
-    main_font = pg.font.SysFont('comicsans', 50)
-
-    player = Player(300, 620)
-    
-    all_enemies = []
-    wave_length = 5 #decides the number of enemy ships as level increases
-    enemy_speed = 1
-    
-    lost = False
-    lost_count = -0
-    
-        
-    def redraw():
-        WIN.blit(BACK_BLACK, (0,0))
-        #convert fonts to images by rendering
-        lives_caption = main_font.render(f"Lives: {lives}", 1, (255,255,255))
-        level_caption = main_font.render(f"Level: {level}", 1, (255,255,255))
-        WIN.blit(lives_caption, (10,10))
-        WIN.blit(level_caption, (WIDTH-level_caption.get_width()-10, 10))
-        
-        for enemy in all_enemies:
-            enemy.draw(WIN)
-        
-        if lost:
-            lost_caption = main_font.render(f"You Lost", 1, (255,255,255))
-            WIN.blit(lost_caption, (WIDTH/2 - lost_caption.get_width()/2, HEIGHT/2))
-        player.draw(WIN)
-        
-        #draw a rectangle:
-        pg.draw.rect(WIN, (0,255,0), (player.x , player.y + player.ship_png.get_height()+5, player.ship_png.get_width(), 18))
-            
-        pg.display.update()
-        
+    text_label = END_FONT.render("Press Space to Restart", 1, (255,255,255))
     while run:
-        clock.tick(FPS)
-        redraw()
-        
-        if lives<=0 or player.health<=0:
-            lost = True
-            lost_count+=1
-        
-        if lost:
-            if lost_count > FPS*3:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
                 run = False
-            else:
-                continue
-            
-        if len(all_enemies) == 0:
-            level+=1
-            wave_length+=5 
-            for enemy in range(wave_length):
-                enemy = Enemy(random.randrange(50, WIDTH-100), random.randrange(-1500, -100), random.choice(['green', 'blue', 'red']))
-                all_enemies.append(enemy)
-        
-        
-        '''input keys from user, keys (is  dictionary giving on, off for each key)
-            (and it's outside for loop, because for every frame *FPS* we will check if 
-             Key is pressed) '''
-        keys = pg.key.get_pressed()
-        
-        for event in pg.event.get():
-            if event.type == pg.QUIT or keys[pg.K_ESCAPE]:
+
+            if event.type == pygame.KEYDOWN:
+                main(win)
+
+        win.blit(text_label, (WIN_WIDTH/2 - text_label.get_width()/2, 500))
+        pygame.display.update()
+
+    pygame.quit()
+    quit()
+
+def draw_window(win, bird, pipes, base, score):
+    """
+    draws the windows for the main game loop
+    :param win: pygame window surface
+    :param bird: a Bird object
+    :param pipes: List of pipes
+    :param score: score of the game (int)
+    :return: None
+    """
+    win.blit(bg_img, (0,0))
+
+    for pipe in pipes:
+        pipe.draw(win)
+
+    base.draw(win)
+    bird.draw(win)
+
+    # score
+    score_label = STAT_FONT.render("Score: " + str(score),1,(255,255,255))
+    win.blit(score_label, (WIN_WIDTH - score_label.get_width() - 15, 10))
+
+    pygame.display.update()
+
+
+def main(win):
+    """
+    Runs the main game loop
+    :param win: pygame window surface
+    :return: None
+    """
+    bird = Bird(230,350)
+    base = Base(FLOOR)
+    pipes = [Pipe(700)]
+    score = 0
+
+    clock = pygame.time.Clock()
+    start = False
+    lost = False
+
+    run = True
+    while run:
+        pygame.time.delay(30)
+        clock.tick(60)
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
                 run = False
-                
-        if keys[pg.K_RIGHT] and player.x < WIDTH - player.ship_png.get_width(): # right
-            player.x += player_speed
-        if keys[pg.K_LEFT] and player.x > 0: #left
-            player.x -= player_speed
-        if keys[pg.K_DOWN] and player.y < HEIGHT - player.ship_png.get_height() - 20: #down
-            player.y += player_speed
-        if keys[pg.K_UP] and player.y > 0: # up
-            player.y -= player_speed
-       	if keys[pg.K_SPACE]:
-       		player.shoot()
-        
-        for enemy in all_enemies[:]:
-            enemy.move(enemy_speed)
-            enemy.move_lasers(laser_speed, player)
+                pygame.quit()
+                quit()
+                break
 
-            if random.randrange(0, 8*60) == 1:
-            	enemy.shoot()    
+            if event.type == pygame.KEYDOWN and not lost:
+                if event.key == pygame.K_SPACE:
+                    if not start:
+                        start = True
+                    bird.jump()
 
-            if enemy.y + enemy.ship_png.get_height() > HEIGHT:
-                lives -=1
-                all_enemies.remove(enemy)
+        # Move Bird, base and pipes
+        if start:
+            bird.move()
+        if not lost:
+            base.move()
 
-        player.move_lasers(-laser_speed, all_enemies)
-        
+            if start:
+                rem = []
+                add_pipe = False
+                for pipe in pipes:
+                    pipe.move()
+                    # check for collision
+                    if pipe.collide(bird, win):
+                        lost = True
 
-main()
+                    if pipe.x + pipe.PIPE_TOP.get_width() < 0:
+                        rem.append(pipe)
 
+                    if not pipe.passed and pipe.x < bird.x:
+                        pipe.passed = True
+                        add_pipe = True
+
+                if add_pipe:
+                    score += 1
+                    pipes.append(Pipe(WIN_WIDTH))
+
+                for r in rem:
+                    pipes.remove(r)
+
+
+        if bird.y + bird_images[0].get_height() - 10 >= FLOOR:
+            break
+
+        draw_window(WIN, bird, pipes, base, score)
+
+    end_screen(WIN)
+
+main(WIN)
